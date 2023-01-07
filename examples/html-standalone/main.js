@@ -5,6 +5,15 @@ import { Web3Modal } from '@web3modal/standalone'
 const connectButton = document.getElementById('connect-button')
 const getWalletsButton = document.getElementById('getWallets-button')
 getWalletsButton.disabled = true
+const getNFTsButton = document.getElementById('getNFTs-button')
+getNFTsButton.disabled = true
+const walletIdsSelect = document.getElementById('walletIds-select')
+walletIdsSelect.disabled = true
+const resultOutput = document.getElementById('result-output')
+
+function output(result) {
+  resultOutput.innerText = JSON.stringify(result, null, '    ')
+}
 
 // 1. Define constants
 const projectId = '055e23cc494b99b68603d1225080660f'
@@ -25,7 +34,7 @@ const namespaces = {
      * https://github.com/WalletConnect/walletconnect-monorepo/blob/873f23556863f0467e4ea177541b82edee78066a/packages/sign-client/src/controllers/engine.ts#L147
      */
     chains: ['chia:mainnet'],
-    methods: ['chia_getWallets'],
+    methods: ['getWallets', 'getNFTs'].map(command => `chia_${command}`),
     events: []
   }
 }
@@ -49,6 +58,7 @@ async function initialize() {
 initialize()
 
 let session = undefined
+let requestId = 1
 
 // 5. Create connection handler
 connectButton.addEventListener('click', async () => {
@@ -59,6 +69,7 @@ connectButton.addEventListener('click', async () => {
         web3Modal.openModal({ uri })
         session = await approval()
         console.log(session)
+        output(session)
         getWalletsButton.disabled = false
         getWalletsButton.innerText = 'Get Wallets'
         web3Modal.closeModal()
@@ -73,11 +84,12 @@ getWalletsButton.addEventListener('click', async () => {
   try {
     if (session) {
       const [network, instance, fingerprint] = session.namespaces.chia.accounts[0].split(':')
+      requestId += 1
       const result = await signClient.request({
         topic: session.topic,
         chainId: `${network}:${instance}`,
         request: {
-          id: 1,
+          id: requestId,
           jsonrpc: '2.0',
           method: 'chia_getWallets',
           params: {
@@ -86,6 +98,53 @@ getWalletsButton.addEventListener('click', async () => {
         }
       })
       console.log(result)
+      output(result)
+      getNFTsButton.disabled = false
+      getNFTsButton.innerText = 'Get NFTs'
+      walletIdsSelect.disabled = false
+      // WalletType: https://github.com/Chia-Network/chia-blockchain-gui/blob/main/packages/api/src/constants/WalletType.ts
+      const nftWallets = result.data.filter(e => e.type === 10)
+      nftWallets.forEach(e => {
+        const opt = document.createElement('option')
+        opt.value = e.id
+        opt.text = `ID: ${e.id} DID: ${e.meta.did}`
+        walletIdsSelect.add(opt)
+      })
+    }
+  } catch (err) {
+    console.error(err)
+  }
+})
+
+getNFTsButton.addEventListener('click', async () => {
+  try {
+    if (session) {
+      const walletIds = Array.from(walletIdsSelect.selectedOptions)
+        .filter(e => e.value !== '')
+        .map(e => parseInt(e.value, 10))
+      if (walletIds.length === 0) {
+        // eslint-disable-next-line no-alert
+        alert('Please select NFT Wallet ID')
+
+        return
+      }
+      const [network, instance, fingerprint] = session.namespaces.chia.accounts[0].split(':')
+      requestId += 1
+      const result = await signClient.request({
+        topic: session.topic,
+        chainId: `${network}:${instance}`,
+        request: {
+          id: requestId,
+          jsonrpc: '2.0',
+          method: 'chia_getNFTs',
+          params: {
+            fingerprint,
+            walletIds
+          }
+        }
+      })
+      console.log(result)
+      output(result)
     }
   } catch (err) {
     console.error(err)
